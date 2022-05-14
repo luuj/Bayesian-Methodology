@@ -1,0 +1,151 @@
+---
+title: "BST249 HW2"
+author: "Jonathan Luu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Question 1
+
+Suppose our prior is $\frac{p_{\alpha}(\theta)g(\theta)}{z(\alpha)}$. The posterior of this prior given some data Y is:
+
+$$
+\begin{aligned}
+p_{\alpha}(\theta|Y) &\propto \frac{p_{\alpha}(\theta)g(\theta)}{z(\alpha)}L(\theta)\\
+&\propto \frac{\frac{p_\alpha(\theta)L(\theta)}{C} g(\theta)}{z(\alpha)}\\
+&=\frac{p_\alpha(\theta|Y)g(\theta)}{z(\alpha)} \qquad \mbox{(Bayes Theorem)}\\
+&=\frac{p_{\alpha_i}(\theta)g(\theta)}{z(\alpha)} \qquad \mbox{(Def. of Conjugacy)}
+\end{aligned}
+$$
+
+for likelihood $L(\theta)$ and normalizing constant $C$. Since our re-weighted prior is of the same form as our re-weighted posterior, it is also a conjugate prior.
+
+# Question 2
+
+Suppose our prior is $p(\theta)=\sum_{i=1}^k \pi_i p_{\alpha_i}(\theta)$. The posterior of this prior given some data Y is:
+
+$$
+\begin{aligned}
+p_{\alpha}(\theta | Y) &\propto \sum_{i=1}^k \pi_i p_{\alpha_i}(\theta) L(\theta)\\
+&\propto \sum_{i=1}^k \pi_i \frac{ p_{\alpha_i}(\theta) L(\theta)}{C}\\
+&= \sum_{i=1}^k \pi_i  p_{\alpha_i}(\theta |Y) \qquad \mbox{(Bayes Theorem)}\\
+&= \sum_{i=1}^k \pi_i  p_{\alpha_i}(\theta) \qquad \mbox{(Def. of Conjugacy)}
+\end{aligned}
+$$
+for likelihood $L(\theta)$ and normalizing constant $C$. Since the posterior mixture is of the same form as the prior mixture, it is also a conjugate prior. 
+
+# Question 3
+
+## Part 3a
+
+The Poisson likelihood is
+
+$$
+L(\theta|x) = \frac{e^{-n\theta}\theta^{\sum_{i=1}^n x_i}}{\prod_{i=1}^n x_i!}
+$$
+
+The gamma prior density is
+
+$$
+p(\theta) = \frac{\beta^\alpha}{\Gamma(\alpha)}\theta^{\alpha-1}e^{-\beta \theta}
+$$
+
+The posterior density is 
+
+$$
+\pi(\theta | x) \propto \theta^{\alpha-1+\sum_{i=1}^nx_i}e^{-\theta(\beta+n)}
+$$
+
+which is a Gamma($\alpha+\sum_{i=1}^nx_i, n+\beta$) which is the same family as the prior. Therefore, it is a conjugate prior family.
+
+## Part 3b
+
+Since we have a conjugate prior family from part (a), $\pi_1,\pi_2$ represent a mixture from Q2, and $I(\theta \le 100)$ represents a reweighting from Q1, $p_{\pi,\alpha,\beta}$ is a conjugate prior family.
+
+## Part 3c
+
+$$
+\begin{aligned}
+p(\theta|x) &\propto L(\theta|x)p_{\pi,a,b}(\theta)\\
+&\propto e^{-n\theta}\theta^{\sum_{i=1}^n x_i} \left[\pi_1 \frac{b_1^{a_1}}{\Gamma(a_1)}\theta^{a_1-1}e^{-b_1 \theta} + \pi_2\frac{b_2^{a_2}}{\Gamma(a_2)}\theta^{a_2-1}e^{-b_2 \theta}\right]I(\theta \le 100)\\
+&=\left[\pi_1 \frac{b_1^{a_1}}{\Gamma(a_1)}\theta^{a_1-1+\sum_{i=1}^n x_i}e^{-(b_1+n) \theta} + \pi_2\frac{b_2^{a_2}}{\Gamma(a_2)}\theta^{a_2-1+\sum_{i=1}^n x_i}e^{-(b_2+n) \theta}\right]I(\theta \le 100)\\
+&=\left[\pi_1' \mbox{Gamma}(\theta| a_1', b_1') + \pi_2'\mbox{Gamma}(\theta|a_2',b_2')\right] I(\theta \le 100)
+\end{aligned}
+$$
+
+where $a'=(a_1+\sum_{i=1}^n x_i, a_2 + \sum_{i=1}^n x_i)$, $b'=(b_1+n,b_2+n)$, and $\pi'$ is the form stated in the hint. To go from the third step to fourth step, we multiply by $\frac{b_1'^{a_1'}}{\Gamma(a_1')}\frac{b_2'^{a_2'}}{\Gamma(a_2')}\frac{\Gamma(a_1')}{b_1'^{a_1'}}\frac{\Gamma(a_2')}{b_2'^{a_2'}}$.
+
+## Part 3d
+
+```{r}
+# Prior parameters
+pi <- c(0.5,0.5)
+a <- c(3,3)
+b <- c(3/50,3)
+
+# Plot the prior CDF
+x_values <- seq(0,100,1)
+pdf_prior <- pi[1]*dgamma(0:100,shape=a[1],rate=b[1]) + 
+   pi[2]*dgamma(0:100,shape=a[2],rate=b[2])
+pdf_prior_norm <- pdf_prior/sum(pdf_prior)
+cdf_prior <- cumsum(pdf_prior_norm)
+
+plot(x_values, cdf_prior, type="l", col="red", xlab="X",ylab="", 
+     main="Prior CDF")
+```
+```{r}
+# Two data sets
+data_1 <- c(81,45,57)
+data_2 <- c(1,0,2)
+
+# Calculate the sum of each dataset
+sum_x1 <- sum(data_1)
+sum_x2 <- sum(data_2)
+n <- 3
+
+# Logsumexp trick from hint
+logsumexp <- function(x){
+   c <- max(x)
+   c + log(sum(exp(x-c)))
+}
+
+# Calculate log(gamma(x))
+loggamma <- Vectorize(function(x){
+   sum(log(seq(1,x-1,1)))
+})
+
+# Function to calculate the posterior cdf
+calculatePosteriorCDF <- function(sum_val){
+   # Calculate the posterior parameters
+   a_new <- a + sum_val
+   b_new <- b + n
+   
+   # Calculate weights on log scale
+   w <- log(pi) + a*log(b) - loggamma(a) + loggamma(a_new) - a_new*log(b_new)
+   pi_new <- exp(w-logsumexp(w))
+
+   pdf_post <- pi_new[1]*dgamma(0:100,shape=a_new[1],rate=b_new[1]) +
+   pi_new[2]*dgamma(0:100,shape=a_new[2],rate=b_new[2])
+   pdf_post_norm <- pdf_post/sum(pdf_post)
+   cumsum(pdf_post_norm)
+}
+
+# Plot both posterior CDFs
+cdf_post1 <- calculatePosteriorCDF(sum_x1)
+plot(x_values, cdf_post1, type="l", col="green", xlab="X",ylab="", 
+     main="Posterior CDF Dataset 1")
+
+cdf_post2 <- calculatePosteriorCDF(sum_x2)
+plot(x_values, cdf_post2, type="l", col="blue", xlab="X",ylab="", 
+     main="Posterior CDF Dataset 2")
+```
+
+
+
+
+
+
+

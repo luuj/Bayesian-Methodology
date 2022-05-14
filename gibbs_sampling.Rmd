@@ -1,0 +1,352 @@
+---
+title: "BST249 HW3"
+author: "Jonathan Luu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 5, fig.height = 3.5, comment = NA)
+library(ggplot2)
+library(invgamma)
+library(mvtnorm)
+set.seed(123)
+
+data.2 <- read.table("C:\\Users\\Jonathan\\OneDrive - Harvard University\\School\\Harvard\\BST249\\Homework 3\\homework-3-data.tsv", 
+         header=TRUE)
+```
+
+# Question 1
+
+```{r}
+# Import data
+aomori.data <- c(188.6, 244.9, 255.9, 329.1, 244.5, 167.7, 298.4, 274.0, 241.3,
+                 288.2, 208.3, 311.4, 273.2, 395.3, 353.5, 365.7, 420.5, 303.1,
+                 183.9, 229.9, 359.1, 355.5, 294.5, 423.6, 339.8, 210.2, 318.5,
+                 320.1, 366.5, 305.9, 434.3, 382.3, 497.2, 319.3, 398.0, 183.9,
+                 201.6, 240.6, 209.4, 174.4, 279.5, 278.7, 301.6, 196.9, 224.0,
+                 406.7, 300.4, 404.3, 284.3, 312.6, 203.9, 410.6, 233.1, 131.9,
+                 167.7, 174.8, 205.1, 251.6, 299.6, 274.4, 248.0)
+
+valdez.data <- c(351.0, 379.3, 196.1, 312.3, 301.4, 240.6, 257.6, 304.5, 296.0,
+                 338.8, 299.9, 384.7, 353.5, 312.8, 550.7, 327.1, 515.8, 343.4,
+                 341.6, 396.9, 267.3, 230.6, 277.4, 341.0, 377.0, 391.3, 337.0,
+                 250.4, 353.7, 307.7, 237.5, 275.2, 271.4, 266.5, 318.7, 215.5,
+                 438.3, 404.6)
+```
+
+\newpage
+```{r}
+# Histograms of the data
+hist(aomori.data, main = "Histogram of Aomori")
+hist(valdez.data, main= "Histogram of Valdez")
+```
+
+\newpage
+```{r}
+# Look at trend over time
+plot(seq(1954,2014), aomori.data, type="l", main="Trend over time",
+     xlab = "Year", ylab="Snow (in.)", ylim=c(140,550))
+lines(seq(1976,2013), valdez.data, type="l", col="blue")
+legend(1955,540,legend=c("Aomori", "Valdez"), col=c("black","blue"), lty=1)
+```
+
+
+## Part 1a
+
+I believe an iid normal model can be argued to be valid here. Regarding the central limit theorem, we have a reasonable number of observations (n=61 and 38), but the observations are unlikely to be independent from one another as they originate from the same locations. Places with a large amount of snow are more likely to have a large amount of snow each year. However, there are many factors that contribute to weather and it can be argued (similar to height) that the overall effect from year to year is independent. Furthermore, by the CLT, the data should be approximately normal as we get more observations. Regarding temporal dependence, weather also is correlated from year to year as global temperatures increase or decrease. However, since we have a large number of timepoints relative to the strength of temporal dependence, this effect is not as significant. The temporal dependence is also likely to be weak. Regarding trend, both cities also seem to increase in the 1980s and eventually decrease as they approach the 2000s, so there is not a clear positive or negative trend. The support of snowfall is always positive, but since these values are so large in both cities, this is not very important as their values are not being truncated. 
+
+\newpage
+## Part 1b
+
+```{r}
+# Prior parameters
+m <- 305
+c <- 1
+a <- 0.5
+b <- 3285
+n1 <- length(aomori.data)
+n2 <- length(valdez.data)
+
+# Function to draw random samples from a normalgamma
+rnormalgamma <- function(N,m,c,a,b){
+   lambda <- rgamma(N,shape=a,rate=b)
+   rnorm(N,m,sqrt(1/(c*lambda)))
+}
+
+# Function to calculate the posterior
+calculatePosterior <- function(m1,m2,c,a,b1,b2,N=10^5){
+   # Posterior parameters
+   M1 <- ((c*m1)+ sum(aomori.data))/(c+n1)
+   C1 <- c+n1
+   A1 <- a + n1/2
+   B1 <- b1 + 0.5*(c*m1^2 - C1*M1^2+ sum(aomori.data^2))
+
+   M2 <- ((c*m2)+ sum(valdez.data))/(c+n2)
+   C2 <- c+n2
+   A2 <- a + n2/2
+   B2 <- b2 + 0.5*(c*m2^2 - C2*M2^2+ sum(valdez.data^2))
+
+   a1 <- rnormalgamma(N,M1,C1,A1,B1)
+   v1 <- rnormalgamma(N,M2,C2,A2,B2)
+   sum(v1 > a1)/N
+}
+
+calculatePosterior(m,m,c,a,b,b)
+```
+
+The posterior probability that Valdez has a higher mean annual snowfall than Aomori is extremely high at 99%.
+
+\newpage
+## Part 1c
+
+```{r, cache=TRUE}
+# Get the sample mean and variance
+m1 <- mean(aomori.data)
+m2 <- mean(valdez.data)
+b1 <- var(aomori.data)/2
+b2 <- var(valdez.data)/2
+
+# Look at values centered around m1 and m2
+m1.seq <- seq(86,486,10)
+m2.seq <- seq(125,525,10)
+all.seq <- expand.grid(m1.seq, m2.seq)
+post.seq <- integer(nrow(all.seq))
+
+# Calculate all the posterior values
+for (i in 1:nrow(all.seq)){
+   post.seq[i] <- calculatePosterior(all.seq[i,1], all.seq[i,2],c,a,b1,b2)
+}
+
+# Plot the heatmap
+all.seq <- cbind(all.seq,post.seq)
+ggplot(all.seq,aes(x=Var1,y=Var2,fill=post.seq)) + geom_tile() + xlab("m1") +
+   ylab("m2") + ggtitle("Heatmap")
+```
+
+It does not seem to be very sensitive to the prior value choices of m1 and m2, as the posterior probabilities are all very high hovering above 96%. It makes sense that for lower values of m1 and higher values of m2 leading to higher posterior probabilities, while higher values of m1 and lower values of m2 lead to lower posterior probabilities.
+
+\newpage
+# Question 2
+
+## Part 2a
+
+```{r}
+# Linear regression
+lr <- glm(y~x2+x3,data=data.2)
+
+# Prior parameters
+g <- nrow(data.2)
+v0 <- 1
+sigma2_0 <- diag(vcov(lr))
+b_mle <- lr$coefficients
+N <- 10^4
+
+# Calculate SSR
+y <- as.matrix(data.2$y)
+x <- as.matrix(data.2[,2:4])
+SSR <- t(y)%*%y-(g/(g+1))*t(y)%*%x%*%b_mle
+
+# Monte Carlo algorithm
+MC_alg <- function(){
+   # Sample sigma2
+   s1 <- rinvgamma(N, 0.5*(v0+g), 0.5*(sigma2_0[1]*v0+SSR))
+   s2 <- rinvgamma(N, 0.5*(v0+g), 0.5*(sigma2_0[2]*v0+SSR))
+   s3 <- rinvgamma(N, 0.5*(v0+g), 0.5*(sigma2_0[3]*v0+SSR))
+   s <- cbind(s1,s2,s3)
+
+   # Sample beta
+   normals <- apply(s,1, function(z){
+      (g/(g+1))*z%*%solve(t(x)%*%x)
+      })
+
+   b1 <- rnorm(N, (g/(g+1))*b_mle[1], sqrt(abs(normals[1,])))
+   b2 <- rnorm(N, (g/(g+1))*b_mle[2], sqrt(abs(normals[2,])))
+   b3 <- rnorm(N, (g/(g+1))*b_mle[3], sqrt(abs(normals[3,])))
+   
+   cbind(b1,b2,b3,s1,s2,s3)
+}
+
+# Monte carlo approximations of beta and sigma
+results.2a <- MC_alg()
+apply(results.2a,2,mean)
+
+# Scatter plot
+plot(results.2a[,2],results.2a[,3], xlim=c(-1,3),ylim=c(-3,3))
+abline(coef=c(0,1), col="red")
+```
+
+Looking at the MC approximations of beta, they are relatively close to the MLE values generated from the glm function. For the scatterplot, the beta2 and beta3 values are highly correlated. When looking at the data, the x2 and x3 values are very similar to another: when x2 is positive, x3 is usually positive. When x2 is negative, x3 is usually negative as well. 
+
+\newpage
+## Part 2b
+
+From the lecture slides, we have 
+
+$$
+\beta | \sigma^2, y_{(1:n)} \sim N\left(\frac{g}{g+1}\hat{\beta}_{MLE}, \frac{g}{g+1}\sigma^2(X^TX)^{-1} \right)
+$$
+
+To get the posterior of $\sigma^2$, we have
+
+$$
+\begin{aligned}
+\sigma^2|\beta,y_{(1:n)} &\sim p(y_{1:n}|\beta,\sigma^2)p(\sigma^2)\\
+&\sim \text{InvGamma}(\frac{1}{2}(v_0+n), \frac{1}{2}(v_0\sigma_0^2+SSR(\beta)))
+\end{aligned}
+$$
+
+where $SSR(\beta)=\sum_{i=1}^n(y_i-x_i^T\beta)^2$
+
+```{r}
+burn_in <- 1000
+num_samp <- 10^4+1000
+
+gibbs_alg <- function(){
+   # Initialize parameters
+   sample <- matrix(nrow=num_samp, ncol=6)
+   colnames(sample) <- c("b1", "b2", "b3", "s1", "s2", "s3")
+   b_samp <- matrix(b_mle)
+   sig_samp <- matrix(sigma2_0)
+   
+   # Run gibbs sampler
+   for (i in 1:num_samp){
+      # Sample from posterior sigma
+      SSR <- sum((y-x%*%b_samp)^2)
+      sig_samp[1] <- rinvgamma(1, 0.5*(v0+g), 0.5*(v0*sigma2_0[1]^2 + SSR))
+      sig_samp[2] <- rinvgamma(1, 0.5*(v0+g), 0.5*(v0*sigma2_0[2]^2 + SSR))
+      sig_samp[3] <- rinvgamma(1, 0.5*(v0+g), 0.5*(v0*sigma2_0[3]^2 + SSR))
+   
+      # Sample from posterior beta
+      temp <- (g/(g+1))*t(sig_samp)%*%solve(t(x)%*%x)
+      b_samp[1] <- rnorm(1, (g/(g+1))*b_mle[1], sqrt(abs(temp[1])))
+      b_samp[2] <- rnorm(1, (g/(g+1))*b_mle[2], sqrt(abs(temp[2])))
+      b_samp[3] <- rnorm(1, (g/(g+1))*b_mle[3], sqrt(abs(temp[3])))
+
+      # Store result
+      sample[i,] <- c(t(b_samp), t(sig_samp))
+   }
+
+   # Remove burn-in results
+   sample[1001:num_samp,]
+}
+  
+# Get mean results
+results.2b <- gibbs_alg()
+apply(results.2b,2,mean)
+
+# Get running averages
+r_avg <- r_avg_pa <- integer(10^4)
+for (i in 1:10^4){
+   r_avg[i] <- mean(results.2b[1:i,3])
+   r_avg_pa[i] <- mean(results.2a[1:i,3])
+}
+
+# Plot
+t_vals <- seq(1,10^4,1)
+plot(t_vals,r_avg, type="l", log="x", xlab="T (log)",ylab="Running average",
+     ylim=c(-0.6, 0.4), main="Running averages from 2a and 2b")
+lines(t_vals,r_avg_pa,type="l", col="blue")
+```
+
+The blue line represents part 2a and the black line represents part 2b. The performance of the two seems to be pretty similar as they begin to converge shortly after the 1000th T iteration. 
+
+## Part 2c
+
+Since there is a strong correlation shown in the scatter plot from part a, I would expect this method to be worse since this method depends on other values of beta for the beta posteriors. This correlation will make it harder to generate independent samples.
+
+\newpage
+## Part 2d
+
+```{r}
+# Calculate posterior for acceptance ratio
+post.f <- function(beta,sigma){
+   temp <- (g/(g+1))*t(sigma)%*%solve(t(x)%*%x)
+   dmvnorm(t(beta), (g/(g+1))*b_mle,diag(c(sqrt(abs(temp))),3))
+}
+
+gibbs_mh_alg <- function(){
+   # Initialize storage and parameters
+   sample <- matrix(nrow=num_samp, ncol=6)
+   colnames(sample) <- c("b1", "b2", "b3", "s1", "s2", "s3")
+   b_samp <- matrix(b_mle)
+   sig_samp <- matrix(sigma2_0)
+   
+   for (i in 1:num_samp){
+      # Gibbs sampler portion
+      # Sample from posterior sigma
+      SSR <- sum((y-x%*%b_samp)^2)
+      sig_samp[1] <- rinvgamma(1, 0.5*(v0+g), 0.5*(v0*sigma2_0[1]^2 + SSR))
+      sig_samp[2] <- rinvgamma(1, 0.5*(v0+g), 0.5*(v0*sigma2_0[2]^2 + SSR))
+      sig_samp[3] <- rinvgamma(1, 0.5*(v0+g), 0.5*(v0*sigma2_0[3]^2 + SSR))
+   
+      # MH sampler portion
+      # Generate a value from the proposal distribution
+      z <- t(rmvnorm(1, b_samp, diag(0.25,3)))
+
+      # Acceptance ratio
+      a.ratio <- min(post.f(z,sig_samp)/post.f(b_samp,sig_samp), 1) 
+      
+      # Simulate a U(0,1) rv to decide acceptance
+      u <- runif(1)
+      if (u <= a.ratio)
+         b_samp <- z
+      
+      # Store result
+      sample[i,] <- c(b_samp, t(sig_samp))
+   }
+   
+   # Remove burn-in results
+   sample[1001:num_samp,]
+}
+
+# Sanity check
+results.2d <- gibbs_mh_alg()
+apply(results.2d,2,mean)
+```
+
+\newpage
+## Part 2e
+
+```{r, cache=TRUE}
+# Generate the 25 samples for each algorithm
+samples.2a <- samples.2b <- samples.2d <- matrix(nrow = N, ncol=25)
+
+for (i in 1:25){
+   samples.2a[,i] <- MC_alg()[,3]
+   samples.2b[,i] <- gibbs_alg()[,3]
+   samples.2d[,i] <- gibbs_mh_alg()[,3]
+}
+```
+```{r, cache=TRUE}
+# Calculate RMSE
+RMSE.2a <- RMSE.2b <- RMSE.2d <- integer(N)
+
+for (i in 1:N){
+   for (j in 1:25){
+      RMSE.2a[i] <- RMSE.2a[i] + (mean(samples.2a[1:i,j]) + 0.1901)^2
+      RMSE.2b[i] <- RMSE.2b[i] + (mean(samples.2b[1:i,j]) + 0.1901)^2
+      RMSE.2d[i] <- RMSE.2d[i] + (mean(samples.2d[1:i,j]) + 0.1901)^2
+
+   }
+   RMSE.2a[i] <- sqrt(RMSE.2a[i]/25)
+   RMSE.2b[i] <- sqrt(RMSE.2b[i]/25)
+   RMSE.2d[i] <- sqrt(RMSE.2d[i]/25)
+}
+
+# Plot log-log RMSE vs T
+plot(t_vals, RMSE.2a, log = c("x","y"), type="l", xlab="T (log)", 
+     ylab="RMSE (log)", main="log-log RMSE vs T", ylim=c(0,0.6))
+lines(t_vals, RMSE.2b, type="l", col="blue")
+lines(t_vals, RMSE.2d, type="l", col="green")
+```
+
+From this plot, both the MC method and gibbs sampling method have relatively similar performance in terms of the RMSE. However, the gibss sampling/MH method has a much higher RMSE compared to the other two methods. Since the MH method involves sampling from a proposal distribution, there is still a probability of straying away from the true $\beta$ values given the nature of the acceptance ratio. Although it still converges to the real value and gives a decent Monte carlo approximation, the individual values can still be quite different from the true value leading to the RMSE decreasing much slower as T increases. There may also be issues with autocorrelation between samples and mixing issues when using MH which can increase RMSE as well.  
+
+
+
+
+
+
+
+
+

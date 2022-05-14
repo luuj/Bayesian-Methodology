@@ -1,0 +1,118 @@
+---
+title: "BST249 HW1"
+author: "Jonathan Luu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Question 1
+
+Derive $p(\theta|x_{1:n})$ using proportionality. Give the form in terms of a distribution.
+
+$$
+\begin{aligned}
+p(\theta|x_{1:n}) &\propto p(x_{1:n}|\theta)p(\theta)\\
+&= \theta^n exp\left(-\theta \sum_{i=1}^n x_i \right) \frac{\beta^\alpha}{\Gamma(\alpha)}\theta^{\alpha-1}exp(-\beta \theta)\\
+&\propto\theta^{\alpha-1+n}exp\left(-\theta \left[\sum_{i=1}^n x_i + \beta  \right]\right)
+\end{aligned}
+$$
+
+which is a Gamma($\alpha+n,\sum_{i=1}^n x_i + \beta$) distribution.
+
+# Question 2
+Suppose your prior is Gamma(0.1,1.0) and data are $(x_1,...,x_8)= \{20.9, 69.7, 3.6, 21.8, 21.4, 0.4, 6.7, 10)\}$. Plot the prior and posterior pdfs.
+
+```{r}
+# Plot prior
+seq_vals <- seq(0.001,1,0.001)
+prior <- dgamma(seq_vals, shape=0.1, rate=1)
+
+n <- 8
+x_sum <- 20.9+69.7+3.6+21.8+21.4+0.4+6.7+10
+posterior <- dgamma(seq_vals, shape=0.1+n, rate=x_sum+1)
+plot(seq_vals, prior, type="l", col="red", xlab="X",ylab="", 
+     main="Prior vs Posterior Gammas")
+lines(seq_vals, posterior, type="l", col="green")
+```
+
+where the red line is the prior and green line is the posterior.
+
+# Question 3
+
+One example would be modeling the change in lap times during a run. Some lap times may be an increase from the previous lap time, while some lap times may be an improvement from the previous lap time. Since the exponential model strictly has values larger than 0, it would be not an appropriate model for this type of data since we could potentially have negative values that indicate improvement in time.
+
+# Question 4
+
+Show that the action a that minimizes the posterior expected loss is the a that maximizes $P(S=a|x_{1:n})$.
+
+Since $\ell$ is 0-1 loss, $\ell=I(S\ne a)$.
+
+$$
+\begin{aligned}
+E[I(S\ne a) | x_{1:n}] &= \sum I(S \ne a) P(S | x_{1:n})\\
+&= 1 - \sum I(S = a) P(S=a | x_{1:n}) \\
+\end{aligned}
+$$
+
+which is minimized when $\sum I(S = a) P(S=a | x_{1:n})$ is maximized. Since only $(S=a)$ terms contribute to this sum, by maximizing $P(S=a | x_{1:n})$, the whole term is maximized. 
+
+# Question 5
+
+A potential ad hoc procedure would be to count whichever value has occurred more in the observed data, and then choose that value as our prediction for $x_{n+1}$.
+
+Our result from 4 states that the value that minimizes loss is the value that maximizes our posterior predictive. From lecture, we showed that the posterior predictive for a Beta-Bernoulli model is Bernoulli($x_{n+1} | \frac{a_n}{a_n+b_n}$) where $a_n=\alpha + \sum_{i=1}^n x_i$ and $b_n = \beta + n - \sum_{i=1}^n x_i$. Therefore, we predict that $x_{n+1}=1$ if $\frac{a_n}{a_n+b_n} > 0.5$, else we predict that $x_{n+1}=0$.
+
+# Question 6
+
+Yes, very small values of $\beta$ and $\alpha$ would give us a ratio roughly equal to $\frac{\sum_{i=1}^n x_i}{n}$. If this sample mean is larger than 0.5, then we would predict a value of 1, else 0. Qualitatively, $\alpha$ and $\beta$ affect how large of an effect the observed values have on the probability of success. As $\alpha$ gets very large, the probability of success gets closer to 1. Similarly, as $\beta$ gets larger, the probability of success gets closer to 0.
+
+# Question 7
+
+What is the posterior mean in terms of $\alpha, \beta, x_1,...x_n$?
+
+$$
+\begin{aligned}
+E[\theta | x_{1:n}] &= \frac{\alpha + \sum_{i=1}^n x_i}{\alpha + \beta + n}\\
+&=\frac{\alpha}{\alpha + \beta + n} + \frac{\sum_{i=1}^n x_i}{\alpha + \beta + n}\\
+&=\frac{\alpha+\beta}{\alpha + \beta + n} \frac{\alpha}{\alpha+\beta} + \frac{\sum_{i=1}^n x_i}{n}\frac{n}{\alpha + \beta + n}\\
+&=(1-t)E(\theta) + \bar{x}t
+\end{aligned}
+$$
+
+Based on this value of t, more or less weight is given to the prior mean compared to the sample mean relative to the sample size. When the sample size is very small, a majority of the weight is assigned to the prior mean. As n gets larger, more and more weight is assigned to the sample mean. 
+
+# Question 8
+
+```{r}
+# Values of c
+c <- seq(0,0.5,0.01)
+
+# Calculate the loss
+loss <- function(theta,c){
+   if (c >= theta)
+      return(abs(theta-c))
+   else if (c < theta)
+      return(10*abs(theta-c))
+}
+
+# Calculate the approximate integral
+approxIntegral <- function(c, N=1000){
+   sum <- 0
+   for (i in 1:N){
+      inp_theta <- (i-0.5)/N
+      sum <- sum + loss(inp_theta,c)*dbeta(inp_theta,1.05,30)
+   }
+   sum/N
+}
+
+# Plot
+PEL <- sapply(c,approxIntegral)
+plot(c,PEL,type='l', ylim = c(0,0.5))
+```
+
+# Question 9
+
+One possible scenario where 0-1 loss would not be appropriate would be count data that has a very large range of values. Since it is very unlikely that our target value is selected, this loss function is not very effective. A more effective loss function would be L2 loss. 

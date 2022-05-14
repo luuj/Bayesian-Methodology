@@ -1,0 +1,189 @@
+---
+title: "BST249 HW5"
+author: "Jonathan Luu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 6, fig.height = 4, comment = NA)
+ap <- read.csv("C:\\Users\\Jonathan\\OneDrive - Harvard University\\School\\Harvard\\BST249\\Homework 5\\ap.csv", col.names=paste0("V",seq_len(640)), header=FALSE)
+vocab <- read.table("C:\\Users\\Jonathan\\OneDrive - Harvard University\\School\\Harvard\\BST249\\Homework 5\\vocab.txt")
+```
+
+# Question 1
+
+## Part 1a
+
+```{r}
+# Set parameters
+N <- 10000
+x_bar <- 0
+sigma_hat <- 1
+n <- 5
+E_lambda <- (n+1)/(n*sigma_hat)
+
+# Generate q_mu and q_lambda
+q_mu <- rnorm(N, mean = x_bar, sd= sqrt(1/(n*E_lambda)))
+q_lambda <- rgamma(N, shape= (n/2)+1, rate = 0.5*(n*sigma_hat + 1/E_lambda))
+
+data.1a <- q_mu*q_lambda
+plot(data.1a, ylim=c(-4,4), main="VI Scatterplot")
+```
+
+## Part 1b
+
+```{r}
+# Function to draw random samples from a normalgamma
+rnormalgamma <- function(N,m,c,a,b){
+   lambda <- rgamma(N,shape=a,rate=b)
+   rnorm(N,m,sqrt(1/(c*lambda)))
+}
+
+m <- 0
+c <- 5
+a <- 3
+b <- 3
+data.1b <- rnormalgamma(N,m,c,a,b)
+
+plot(data.1b, ylim=c(-4,4), main="NormalGamma Scatterplot")
+```
+
+\newpage
+# Question 2
+
+Variational inference is fast but can have accuracy issues. By incorporating importance sampling which uses a similar idea of finding an approximate proposal distribution, it should help with this underestimated variance issue. As the number of importance samples grows, the variance should decrease but I am not sure if it will guarantee correctness due to VI only working for some distributions as we have to choose these approximate distributions that are easy to work with. The quality of $q(\theta)$ as an importance sampling distribution is high because it is a known distribution, making it easy to sample from. I think this idea would work in general as the two concepts are very closely related, especially in calculating expected values.
+
+# Question 3
+
+$$
+\begin{aligned}
+p(z,w,\beta|X) &\propto p(x|z,\beta)p(z|W)p(w)p(\beta)\\
+&= \prod_{i,l,k,v} \text{Categorical}(\beta_{kv}) \prod_{i,l,k} \text{Categorical}(w_{ik}) \prod_{i,k} \text{Dirichlet}(\alpha_1,...\alpha_K) \prod_{k,v} \text{Dirichlet}(\lambda_1,...\lambda_V)\\
+&=\prod_{i,l,k,v} \beta_{kv}^{I(x_{il}=v)I(z_{il}=k)} \prod_{i,l,k} w_{ik}^{I(z_{il}=k)} \prod_{i,k} w_{ik}^{\alpha_k-1} \prod_{k,v} \beta_{kv}^{\lambda_v-1}\\
+\log(\pi(z,w,\beta)) &= \sum_{i,l,k,v} I(x_{il}=v)I(z_{il}=k) \log(\beta_{kv}) + \sum_{i,l,k} I(z_{il}=k) \log(w_{ik}) + \sum_{i,k}(\alpha_k-1)log(w_{ik})\\
+&+ \sum_{k,v} (\lambda_v-1)log(\beta_{kv}) - NC
+\end{aligned}
+$$
+
+where the normalizing constant does not depend on $z,w,\beta$ since it sums over all their values.
+
+# Question 4
+
+$$
+\begin{aligned}
+q(z,w,\beta) &= q(z)q(w)q(\beta)\\
+q(w) &\propto \sum_{i,l,k} I(z_{il}=k) \log(w_{ik}) + \sum_{i,k}(\alpha_k-1)log(w_{ik})\\
+&=\sum_{i=1}^n \sum_{k=1}^K\left[\sum_l I(z_{il}=k)log(w_{ik}) +  (\alpha_k-1)log(w_{ik}) \right]\\
+&=\sum_{i=1}^n\sum_{k=1}^K \left[(\sum_{l=1}^{L_i} t_{ilk} + \alpha_k-1) log(w_{ik}) \right]\\
+&=\sum_{i=1}^n\sum_{k=1}^K \left[(r_{ik}-1) log(w_{ik}) \right]\\
+&= \prod_{i=1}^n \text{Dirichlet}(w_i|r_{i1},...,r_{iK})\\
+q(\beta) &= \sum_{i,l,k,v} I(x_{il}=v)I(z_{il}=k) \log(\beta_{kv}) +  \sum_{k,v} (\lambda_v-1)\log(\beta_{kv}) \\
+&=\sum_k \sum_v \left[\sum_i \sum_l (I(x_{il}=v)I(z_{il}=k) \log(\beta_{kv})) + (\lambda_v-1)\log(\beta_{kv})   \right]\\
+&= \sum_k \sum_v \left[(\lambda_v +\sum_i \sum_l I(x_{il=v})t_{ilk}-1) \log(\beta_{kv})\right]\\
+&= \sum_k \sum_v \left[(s_{kv}-1) \log(\beta_{kv})\right]\\
+&= \prod_{k=1}^K \text{Dirichlet}(\beta_K | s_{k1},...,s_{kV})\\
+q(z)&= \sum_{i,l,k,v} I(x_{il}=v)I(z_{il}=k) \log(\beta_{kv}) + \sum_{i,l,k} I(z_{il}=k) \log(w_{ik})\\
+&=\sum_i \sum_l \sum_k I(z_{il}=k) \left[ \sum_v I(x_{il}=v) \log(\beta_{kv}) +  \log(w_{ik}) \right]\\
+&= \prod_{i=1}^n \prod_{l=1}^{L_i} \text{Categorical}(z_{il}|t_{il})
+\end{aligned}
+$$
+
+\newpage
+# Question 5
+
+```{r,  eval=FALSE}
+# Function to get length of current document
+calcLength <- function(x){
+   length(x[!is.na(x[1,])])
+}
+
+# Set tolerance level
+tol <- 0.001
+
+# Set parameters
+i_length <- 2246
+K <- 25
+V <- 10473
+alpha <- rep(1/K, K)
+lambda <- rep(1/V, V)
+
+# Initialize r, s, and t randomly
+r_ik <- matrix(runif(i_length*K), nrow=i_length, ncol=K)
+s_kv <- matrix(runif(K*V), nrow=K, ncol=V)
+
+# Run the algorithm
+for(a in 1:150){
+   # Compute first term
+   term1 <- digamma(r_ik) - digamma(apply(r_ik, 1, sum))
+   
+   # Compute second term
+   term2 <- digamma(s_kv) - digamma(apply(s_kv,1, sum))
+   
+   s_kv <- matrix(rep(lambda,K), nrow=K, ncol=V, byrow = TRUE)
+   for(i in 1:i_length){
+      # Get length of the current document
+      L_i <- calcLength(ap[i,])
+      
+      # Get vocab list of the current document
+      currentV <- unlist(ap[i,1:L_i])
+      
+      # Calculate T
+      T_matrix <- term1[i,] + term2[,currentV]
+      
+      # Update r_ik
+      r_ik[i,] <- alpha + apply(T_matrix,1,sum)
+      
+      # Update s_kv
+      s_kv[,currentV] <- s_kv[,currentV] + T_matrix 
+   }
+   
+   print(paste("iteration", a, "done"))
+}
+```
+
+# Question 6
+
+Since the running time was extremely long, I chose to cap the number of simulations at 150 rather than utilize the tolerance level.
+
+```{r, eval=FALSE}
+cat_pop <- numeric(25)
+for (i in 1:2246){
+   curr_r_sum <- sum(r_ik[i,])
+   cat_pop <- cat_pop + r_ik[i,]/curr_r_sum
+}
+
+# Top 8 topics are 8, 10, 21, 19, 5, 22, 9, 18
+sort(cat_pop, index.return=TRUE)
+
+word_pop <- matrix(0, nrow=8, ncol=20)
+curr_i <- 1
+for (k in c(8,10,21,19,5,22,9,18)){
+   word_pop[curr_i,] <- tail(sort(s_kv[k,] / sum(s_kv[k,]), index.return=TRUE)$ix, n=20)
+
+   curr_i <- curr_i + 1
+}
+```
+
+## Part 6b
+
+Workplace: "interview"   "bernard"     "surrounded"  "high"        "residents"   "information" "fell"        "effect"      "suggesting"  "europeans"   "population"  "employees"   "operations"  "jessica" "word"        "seoul"       "go"          "foundation"  "patients"    "office"  
+
+Diplomacy: "indicated" "state"     "jacques"   "say"       "france"    "spread"    "interview" "reduce" "newspaper" "i"         "party"     "full"      "minister"  "war"       "political" "people"   "percent"   "good"      "world"     "made"  
+
+America: "american"     "president"    "asked"        "communist"    "spent"        "party"        "country"     "two"          "announced"    "new"          "people"       "last"         "just"         "told"        "i"            "officials"    "filipino"     "psychiatrist" "defense"      "found" 
+
+Unknown: "first"      "i"          "two"        "dozen"      "san"        "nyselisted" "news"       "time" "party"      "show"       "told"       "implement"  "last"       "looking"    "production" "resolve" "limited"    "studied"    "year"       "trade" 
+
+Election: "officials"  "small"      "say"        "state"      "president"  "department" "today"      "last"      "new"        "people"     "two"        "recent"     "cuban"      "got"        "members"    "primary"   "texas"      "security"   "winning"    "wednesday" 
+
+Unknown: "new"            "national"       "friends"        "years"          "bishop"         "american"      "i"              "states"         "united"         "first"          "remove"         "gives"         "school"         "thursday"       "monsignor"      "president"      "judith"         "physical"  "rehabilitation" "speculation"  
+
+Unknown: "just"     "abdomen"  "housing"  "american" "work"     "told"     "three"    "time"     "state"  "inflated" "years"    "momentum" "king"     "aboard"   "people"   "bring"    "sworn"    "week"    "buyers"   "white" 
+
+Money: "louis"     "arm"       "condemned" "imported"  "imports"   "new"       "price"     "tons"     
+"ohio"      "democrat"  "center"    "sustain"   "agency"    "dollars"   "president" "provided" 
+"money"     "economic"  "backing"   "final"  
+
+## Part 6c
+
+Yes, three of the topics in the top 8 were less coherent and harder to interpret. Some words that I would remove are "i", "two", and verbs such as "go" and "say", as they do not add very much information about a particular topic.

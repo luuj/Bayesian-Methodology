@@ -1,0 +1,385 @@
+---
+title: "BST249 HW4"
+author: "Jonathan Luu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 5, fig.height = 3.5, comment = NA)
+hw4.data <- read.table("C:\\Users\\Jonathan\\OneDrive - Harvard University\\School\\Harvard\\BST249\\Homework 4\\homework-4-data.txt")
+colnames(hw4.data) <- c("L11", "L12", "L21", "L22", "L31", "L32",
+                        "L41", "L42", "L51", "L52", "L61", "L62",
+                        "L71", "L72", "L81", "L82")
+
+set.seed(123)
+library(DirichletReg)
+library(coda)
+library(ggplot2)
+```
+
+# Question 1
+
+Derive the full conditionals.
+
+$$
+\begin{aligned}
+p(z|w,\theta,x_{obs}) &\propto p(z,w,\theta,x_{obs}) \propto p(z|w)p(x_{obs}|z=k,\theta)\\
+&\propto  \frac{w_{k}\prod_{l=1}^L \prod_{c=1}^2  \theta_{kl}(x_{ilc})^{o_{ilc}}}{\sum_{j=1}^K w_j \prod_{l=1}^L \prod_{c=1}^2  \theta_{jl}(x_{ilc})^{o_{ilc}}}\\
+&\propto \frac{w_{k}\prod_{l=1}^L \prod_{v=1}^{V_l}  \theta_{kl}(v)^{\sum_{c=1}^2I(x_{ilc}=v)o_{ilc}}}{\sum_{j=1}^K w_j \prod_{l=1}^L \prod_{v=1}^{V_l}  \theta_{jl}(v)^{\sum_{c=1}^2I(x_{ilc}=v)o_{ilc}}}\\
+p(w|z,\theta,x_{obs}) &\propto p(z|w)p(w) \propto \prod_{i=1}^n w_{z_i}\\
+&\propto \prod_{k=1}^Kw_k^{n_k} \\
+&= \text{Dirichlet}(n_1+1, ..., n_k+1)\\
+p(\theta_{kl}|w,z,x_{obs}) &\propto p(x_{obs}|z,\theta)p(\theta)\\
+&\propto \prod_{i=1}^n  \prod_{c=1}^2 \prod_{k=1}^K \prod_{v=1}^{V_l} \theta_{kl}(v)^{I(z_i=k)I(x_{ilc}=v)o_{ilc}}\\
+&\propto \prod_{v=1}^{V_l} \theta_{kl}(v)^{\sum_{i=1}^n \sum_{c=1}^2 I(z_i=k)I(x_{ilc}=v)o_{ilc}}\\
+&= \text{Dirichlet}(1 + \sum_{i=1}^n \sum_{c=1}^2 I(z_i=k)I(x_{ilc}=1)o_{ilc}, ...,\\ &\qquad 1 + \sum_{i=1}^n \sum_{c=1}^2 I(z_i=k)I(x_{ilc}=V_l)o_{ilc})
+\end{aligned}
+$$
+
+\newpage
+# Question 2
+
+Implement the Gibbs sampler
+
+```{r}
+genData <- function(q){
+   # Generate sample data
+   x <- matrix(0,nrow=100,ncol=4)
+   z_sample <- c(rep(1,50), rep(2,50))
+   
+   gen_x <- function(k){
+      if(k==1){p <- c(q,1-q)}
+      else{p <- c(1-q,q)}
+      
+      sample(c(1,2),4,replace=TRUE,prob=p)
+   }
+   
+   for (i in 1:100){
+      x[i,] <- gen_x(z_sample[i])
+   }
+   
+   x
+}
+```
+
+```{r}
+runSampler <- function(makeTrace=TRUE, K, L, V, num_sim=1000){
+   # Set parameters
+   V_max <- max(V)
+   n <- nrow(x)
+   
+   # Initialize uniform prior
+   w <- rep(1/K, K)
+   theta_k <- matrix(0, nrow=L, ncol=V_max)
+   for (j in 1:L){
+      theta_k[j,1:V[j]] <- 1/V[j]
+   }
+   theta <- array(rep(theta_k,K), dim=c(L,V_max,K))
+   
+   # Sample from the prior
+   z <- sample(seq(1,K), n, replace=TRUE)
+   
+   # Translates l and c into index for dataset
+   getIndex <- function(l,c){(l-1)*2+c}
+   
+   # Calculate p(z=k|.)
+   pz <- function(k, i){
+      p <- w[k]
+   
+      for (l in 1:L){
+         for (v in 1:V[l]){
+            c_count <- (x[i,getIndex(l,1)]==v) + (x[i,getIndex(l,2)]==v)
+            p <- p * theta[l, v, k]^c_count
+         }
+      }
+      
+      return(p)
+   }
+   
+   # Calculate w_tilde
+   w_tilde <- function(i){
+      w_i_tilde <- numeric(K)
+      for (k in 1:K){
+         w_i_tilde[k] <- pz(k, i)
+      }
+      
+      norm_const <- sum(w_i_tilde)
+      w_i_tilde/norm_const
+   }
+   
+   # Store values for trace plots
+   w1_vals <- numeric(num_sim)
+   theta_kl_vals <- matrix(0, num_sim, 4)
+   
+   # Run gibbs sampler
+   for (j in 1:num_sim){
+      # z conditional sample
+      for (i in 1:n){ 
+         z[i] <- sample(1:K, 1, prob=w_tilde(i))
+      } 
+
+      # w conditional sample
+      I_zk <- numeric(K)
+      for (k in 1:K){
+         I_zk[k] <- sum(z==k) + 1
+      }
+      
+      w <- rdirichlet(1,I_zk)
+      w1_vals[j] <- w[1]
+
+      # theta conditional sample
+      for (k in 1:K){
+         for (l in 1:L){
+            curr_theta <- numeric(V[l])
+            for (v in 1:V[l]){
+               curr_sum <- sum((z==k)&(x[,getIndex(l,1)]==v)) +
+                     sum((z==k)&(x[,getIndex(l,2)]==v)) + 1
+               
+               curr_theta[v] <- curr_sum
+            }
+            
+            theta[l,1:V[l],k] <- rdirichlet(1,curr_theta) 
+         }
+      }
+      
+      if (makeTrace==TRUE)
+         theta_kl_vals[j,] <- c(theta[,1,1],theta[,1,2])
+   }
+
+   # Traceplots
+   if (makeTrace == TRUE){
+      traceplot(mcmc(w1_vals), main="W1")
+      traceplot(mcmc(theta_kl_vals[,1]), main="Theta, k=1, l=1, v=1")
+      traceplot(mcmc(theta_kl_vals[,2]), main="Theta, k=1, l=2, v=1")
+      traceplot(mcmc(theta_kl_vals[,3]), main="Theta, k=2, l=1, v=1")
+      traceplot(mcmc(theta_kl_vals[,4]), main="Theta, k=2, l=2, v=1")
+   }
+   
+   # Return results for barplot
+   final_pz <- matrix(0, nrow=K, ncol=n)
+   for (i in 1:n){
+      final_pz[,i] <- rev(w_tilde(i))
+   }
+   final_pz
+}
+
+```
+
+\newpage
+# Question 3
+
+## Part 3a
+
+```{r, fig.width=3.5}
+x <- genData(0.8)
+res <- runSampler(K=2, L=2, V=c(2,2))
+
+# Bar Plot
+vals <- c(t(res))
+group <- c(rep(1,ncol(res)), rep(2,ncol(res)))
+ind <- c(seq(1,ncol(res)), seq(1,ncol(res)))
+temp <- data.frame(vals, group, ind)
+ggplot(temp, aes(fill=group, y=vals, x=ind)) + 
+   geom_bar(position="stack", stat="identity", show.legend = FALSE) +
+   xlab("Individual") + ylab("Probability")
+```
+
+The bar plot matches with Figure 2. Looking at the traceplots, the sampler seems to be doing relatively well. The mixing is good and the theta values settle fast with no burn-in required. 
+
+\newpage
+## Part 3b
+
+```{r}
+x <- genData(0.9)
+res <- runSampler(makeTrace = FALSE, K=2, L=2, V=c(2,2))
+vals <- c(t(res))
+group <- c(rep(1,ncol(res)), rep(2,ncol(res)))
+ind <- c(seq(1,ncol(res)), seq(1,ncol(res)))
+temp <- data.frame(vals, group, ind)
+ggplot(temp, aes(fill=group, y=vals, x=ind)) + 
+   geom_bar(position="stack", stat="identity", show.legend = FALSE) +
+   xlab("Individual") + ylab("Probability")
+
+x <- genData(0.99)
+res <- runSampler(makeTrace = FALSE, K=2, L=2, V=c(2,2))
+vals <- c(t(res))
+group <- c(rep(1,ncol(res)), rep(2,ncol(res)))
+ind <- c(seq(1,ncol(res)), seq(1,ncol(res)))
+temp <- data.frame(vals, group, ind)
+ggplot(temp, aes(fill=group, y=vals, x=ind)) + 
+   geom_bar(position="stack", stat="identity", show.legend = FALSE) +
+   xlab("Individual") + ylab("Probability")
+```
+
+Yes, the results do make sense. As q increases, you are more likely to be in your respective K category. Therefore, it makes sense that the barplot becomes more and more "divided" as q increases.
+
+# Question 4
+
+```{r}
+x <- hw4.data
+res <- runSampler(makeTrace = FALSE, K=4, L=8, V=c(15,13,6,6,9,14,16,9))
+
+vals <- c(t(res))
+group <- c(rep(1,ncol(res)), rep(2,ncol(res)), rep(3,ncol(res)), rep(4,ncol(res)))
+ind <- c(seq(1,ncol(res)), seq(1,ncol(res)), seq(1,ncol(res)), seq(1,ncol(res)))
+temp <- data.frame(vals, group, ind)
+ggplot(temp, aes(fill=group, y=vals, x=ind)) + 
+   geom_bar(position="stack", stat="identity", show.legend = FALSE) +
+   xlab("Individual") + ylab("Probability")
+```
+
+Note: Only ran the sampler once as it took quite a while to run. Regarding interpretation, the different 4 colors represent the probabilities of belonging to one of the 4 groups, given the data. Around half the values have a very high probability of belonging to one group, a smaller percentage of the values have a very high probability of belonging to another group, and even a smaller percentage of values have a high probability of belonging to a third group. Some of the values have mixed probabilties of belonging to one of the four groups.
+
+\newpage
+# Question 5
+Since there are only two subspecies, it makes sense that a lot of the values have a high probability of belonging to one group, while the rest of the values are being grouped into another of two groups, roughly speaking. Since I only plotted one plot due to the computational time, I can't compare animals who are consistently clustered differently, but I can see values around 140 and 190 who are different than the values surrounding them.
+
+# Question 6
+
+```{r}
+runSampler <- function(K, L, V, num_sim=6000){
+   # Set parameters
+   V_max <- max(V)
+   n <- nrow(x)
+   
+   # Initialize uniform prior
+   w <- rep(1/K, K)
+   theta_k <- matrix(0, nrow=L, ncol=V_max)
+   for (j in 1:L){
+      theta_k[j,1:V[j]] <- 1/V[j]
+   }
+   theta <- array(rep(theta_k,K), dim=c(L,V_max,K))
+   
+   # Sample from the prior
+   z <- sample(seq(1,K), n, replace=TRUE)
+   
+   # Translates l and c into index for dataset
+   getIndex <- function(l,c){(l-1)*2+c}
+   
+   # Calculate p(z=k|.)
+   pz <- function(k, i){
+      p <- w[k]
+   
+      for (l in 1:L){
+         for (v in 1:V[l]){
+            c_count <- (x[i,getIndex(l,1)]==v) + (x[i,getIndex(l,2)]==v)
+            p <- p * theta[l, v, k]^c_count
+         }
+      }
+      
+      return(p)
+   }
+   
+   # Calculate w_tilde
+   w_tilde <- function(i){
+      w_i_tilde <- numeric(K)
+      for (k in 1:K){
+         w_i_tilde[k] <- pz(k, i)
+      }
+      
+      norm_const <- sum(w_i_tilde)
+      w_i_tilde/norm_const
+   }
+   
+   # Storage for p(x|.)
+   logp <- numeric(num_sim)
+   logp_theta <- theta
+   
+   # Run gibbs sampler
+   for (j in 1:num_sim){
+      # z conditional sample
+      for (i in 1:n){ 
+         z[i] <- sample(1:K, 1, prob=w_tilde(i))
+      } 
+
+      # w conditional sample
+      I_zk <- numeric(K)
+      for (k in 1:K){
+         I_zk[k] <- sum(z==k) + 1
+      }
+      
+      w <- rdirichlet(1,I_zk)
+
+      # theta conditional sample
+      for (k in 1:K){
+         for (l in 1:L){
+            curr_theta <- numeric(V[l])
+            for (v in 1:V[l]){
+               curr_sum <- sum((z==k)&(x[,getIndex(l,1)]==v)) +
+                     sum((z==k)&(x[,getIndex(l,2)]==v)) 
+               
+               # Store p(x|.)
+               logp_theta[l,v,k] <- curr_sum
+               
+               curr_theta[v] <- curr_sum + 1
+            }
+            
+            theta[l,1:V[l],k] <- rdirichlet(1,curr_theta) 
+         }
+      }
+      
+      # Calculate logp values
+      logp[j] <- sum(log(theta)*logp_theta, na.rm=TRUE)
+   }
+   
+   return(logp)
+}
+```
+
+## Part 6a
+
+```{r}
+x <- genData(0.8)
+res1 <- runSampler(K=1, L=2, V=c(2,2))
+res2 <- runSampler(K=2, L=2, V=c(2,2))
+res3 <- runSampler(K=3, L=2, V=c(2,2))
+res4 <- runSampler(K=4, L=2, V=c(2,2))
+res5 <- runSampler(K=5, L=2, V=c(2,2))
+res6 <- runSampler(K=6, L=2, V=c(2,2))
+
+calcLogp <- function(result){
+   mu_hat <- mean(-2*result[1001:6000], na.rm = TRUE)
+   sigma_hat <- mean((-2*result[1001:6000]-mu_hat)^2, na.rm=TRUE)
+   
+   -mu_hat/2 - sigma_hat/8
+}
+
+plot_logP <- c(calcLogp(res1), calcLogp(res2), calcLogp(res3),
+               calcLogp(res4), calcLogp(res5), calcLogp(res6))
+
+plot(1:6,plot_logP, xlab="K", ylab="logP")
+```
+
+Looking at the results and knowing that there are 2 true categories, it makes sense as the plot peaks at K=2 and then starts to level off.
+
+## Part 6b
+
+```{r}
+x <- hw4.data
+res1 <- runSampler(K=1, L=8, V=c(15,13,6,6,9,14,16,9), num_sim = 400)
+res2 <- runSampler(K=2, L=8, V=c(15,13,6,6,9,14,16,9), num_sim = 400)
+res3 <- runSampler(K=3, L=8, V=c(15,13,6,6,9,14,16,9), num_sim = 400)
+res4 <- runSampler(K=4, L=8, V=c(15,13,6,6,9,14,16,9), num_sim = 400)
+res5 <- runSampler(K=5, L=8, V=c(15,13,6,6,9,14,16,9), num_sim = 400)
+res6 <- runSampler(K=6, L=8, V=c(15,13,6,6,9,14,16,9), num_sim = 400)
+
+calcLogp <- function(result){
+   mu_hat <- mean(-2*result, na.rm = TRUE)
+   sigma_hat <- mean((-2*result-mu_hat)^2, na.rm=TRUE)
+   
+   -mu_hat/2 - sigma_hat/8
+}
+
+plot_logP <- c(calcLogp(res1), calcLogp(res2), calcLogp(res3),
+               calcLogp(res4), calcLogp(res5), calcLogp(res6))
+plot(1:6,plot_logP, xlab="K", ylab="logP")
+```
+
+
+
+
+
+
+
+
+

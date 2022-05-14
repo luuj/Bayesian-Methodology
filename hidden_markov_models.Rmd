@@ -1,0 +1,247 @@
+---
+title: "BST249 HW6"
+author: "Jonathan Luu"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NA)
+x.data <- read.table("/Users/jonathanluu/OneDrive - Harvard University/School/Harvard/BST249/Homework 6/homework-6-data/x.txt")$V1
+code.data <- read.table("/Users/jonathanluu/OneDrive - Harvard University/School/Harvard/BST249/Homework 6/homework-6-data/code.txt")
+library(HMMpa)
+library(HMM)
+```
+
+# Part 1
+
+Implement the forward and backward algorithm.
+
+```{r}
+# Setup parameters
+m <- 10
+k <- 59
+n <- 292
+pi <- rep(1/m, m)
+transition <- matrix(1/m, nrow=m, ncol=m)
+emission <- matrix(1/k, nrow=m, ncol=k)
+
+# Forward algorithm
+forw <- function(pi, transition, emission, m){
+  s <- matrix(0, n, m)
+  
+  # Step1: Calculate p(z1)p(x1|z1)
+  s[1,] <- pi * emission[, x.data[1]]
+
+  # Step2: Recurse with logsumexp
+  for (j in 2:n){
+    sum <- 0
+    for (z in 1:m){
+      log_val <- log(s[j-1]) + log(transition[z,]) + log(emission[,x.data[j]])
+      val <- exp(logsumexp(log_val))
+      sum <- sum + val
+    }
+    s[j,] <- sum
+  }
+
+  s
+}
+
+# Backward algorithm
+back <- function(pi, transition, emission,m){
+  # Step1: Set all r=1
+  r <- matrix(1, n, m)
+  
+  # Step2: Recurse
+  for (j in (n-1):1){
+    sum <- 0
+    for (z in 1:m){
+      log_val <- log(transition[z,]) + log(emission[,x.data[j+1]]) + log(r[j+1])
+      val <- exp(logsumexp(log_val))
+      sum <- sum + val
+    }
+    r[j,] <- sum
+  }
+  
+  r
+}
+
+# Logsumexp trick function 
+logsumexp <- function(x){
+   c <- max(x)
+   c + log(sum(exp(x-c)))
+}
+
+# Calculate logp(x1,...,xn)
+for.vals <- forw(pi, transition, emission, m)
+log(sum(for.vals[n,]))
+```
+
+\newpage
+# Part 2
+
+Implement the Baum-Welch algorithm.
+
+```{r}
+genProbVals <- function(n){
+  vals <- runif(n)
+  vals / sum(vals)
+}
+
+bw <- function(m, k=59, tolerance=0.01){
+  # Randomly initialize parameters
+  pi <- genProbVals(m)
+  
+  transition <- matrix(0, nrow=m, ncol=m)
+  emission <- matrix(1/k, nrow=m, ncol=k)
+  for (i in 1:m){
+    transition[i,] <- genProbVals(m)
+    emission[i,] <- genProbVals(k)
+  }
+  
+  diff <- -10000
+  while (abs(diff) < tolerance){
+    forw.res <- forw(pi, transition, emission, m)
+    back.res <- back(pi, transition, emission, m)
+    
+    # Expectation
+    Esum1 <- 0
+    for (i in 1:m){
+      Esum1 <- Esum1 + forw.res[1,i]*log(pi[i])
+    }
+    
+    Esum2 <- 0
+    for (t in 2:n){
+      for (i in 1:m){
+        for (j in 1:m){
+          Esum2 <- Esum2 + back.res[t-1,i]*back.res[t,j]*log(transition[i,j])
+        }
+      }
+    }
+    
+    Esum3 <- 0
+    for (t in 1:n){
+      for (i in 1:m){
+        Esum3 <- Esum3 + forw.res[t,i] * log(emission[i,x.data[t]])
+      }
+    }
+    
+    Q <- Esum1 + Esum2 + Esum3
+    
+    # Maximization
+    pi <- forw.res[1,]/sum(forw.res[1,])
+    
+    for (i in 1:m){
+      for (j in 1:m)
+        transition[i,j] <- sum(back.res[,i]*back.res[,j])/sum(forw.res[,i])
+    }
+    
+    # Check tolerance
+    logLik <- log(sum(for.vals[n,]))
+    if ( (abs(logLik) - abs(diff)) > tolerance ){
+      diff <- logLik
+    }else{
+      break
+    }
+  }
+}
+```
+
+
+```{r, cache=TRUE}
+# Using HMM BW algorithm since implemented bw did not work
+q2 <- function(m){
+  for (i in 1:3){
+    pi <- genProbVals(m)
+    
+    transition <- matrix(0, nrow=m, ncol=m)
+    emission <- matrix(1/k, nrow=m, ncol=k)
+    for (i in 1:m){
+      transition[i,] <- genProbVals(m)
+      emission[i,] <- genProbVals(k)
+    }
+    
+    res <- Baum_Welch_algorithm(x=x.data, m=m, delta=pi, gamma=transition,
+          distribution_class="pois", distribution_theta = list(lambda=rep(1,m)),
+          BW_print=FALSE, BW_max_iter=1000, BW_limit_accuracy = 0.01)
+    
+    print(paste0("Num interations:",res$iter, " LogLik:",res$logL, " m:",m))
+  }
+}
+
+q2(10)
+q2(30)
+```
+
+```{r, eval=FALSE}
+q2(100)
+```
+
+```{r, echo=FALSE}
+iter <- c(69,106,107)
+logL <- c(-951.264848937525,-933.10473727933,-933.36359951883)
+m <- 100
+for (i in 1:3){
+  print(paste0("Num interations:",iter[i], " LogLik:",logL[i], " m:",m))
+}
+```
+
+# Part 3
+
+```{r, cache=TRUE}
+# Run BW to estimate parameters
+q3 <- function(m){
+  # Randomize parameters
+  pi <- genProbVals(m)
+    
+  transition <- matrix(0, nrow=m, ncol=m)
+  emission <- matrix(1/k, nrow=m, ncol=k)
+  for (i in 1:m){
+    transition[i,] <- genProbVals(m)
+    emission[i,] <- genProbVals(k)
+  }
+    
+  # Estimate parameters
+  obj <- initHMM(States = 1:m , Symbols = code.data$V1, startProbs = pi, 
+                 transProbs = transition, emissionProbs = emission)
+  res <- baumWelch(obj, x.data, maxIterations = 1000, delta=1)
+  
+  pi <- res$hmm$startProbs
+  transition <- res$hmm$transProbs
+  emission <- res$hmm$emissionProbs
+  
+  # Generate random sequence of words
+  words <- numeric(250)
+  
+  # Starting value
+  word_state <- sample(1:m, 1, prob=pi)
+  words[1] <- sample(1:k, 1, prob=emission[word_state,])
+
+  for (i in 2:250){
+    word_state <- sample(1:m, 1, prob=transition[word_state,])
+    words[i] <- sample(1:k, 1, prob=emission[word_state,])
+  }
+  
+  return(words)
+}
+
+word10 <- q3(10)
+word30 <- q3(30)
+word100 <- q3(100)
+
+# Print corresponding sequence of words
+code.data$V2[word10]
+code.data$V2[word30]
+code.data$V2[word100]
+
+# Original
+code.data$V2[x.data]
+```
+
+
+
+
+
+
+
+
+
